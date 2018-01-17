@@ -73,13 +73,13 @@ class BaseObject extends Subject implements BaseObjectInterface
         $output = [];
         foreach ($map as $propertyName => $key) {
             $propertyName = is_integer($propertyName) ? $key : $propertyName;
-            if ($this->reflection->hasProperty($propertyName)){
+            if ($this->reflection->hasProperty($propertyName)) {
                 $property = $this->reflection->getProperty($propertyName);
                 $property->setAccessible(true);
-                $propertyValue =  $property->getValue($this);
-                if ($propertyValue instanceof BaseObjectInterface and is_array($key)){
+                $propertyValue = $property->getValue($this);
+                if ($propertyValue instanceof BaseObjectInterface and is_array($key)) {
                     $output[$propertyName] = $propertyValue->extractToArray($key);
-                }else{
+                } else {
                     $output[$key] = $propertyValue;
                 }
             }
@@ -225,17 +225,88 @@ class BaseObject extends Subject implements BaseObjectInterface
             $property = $this->reflection->getProperty($name);
             $property->setAccessible(true);
             $oldValue = $property->getValue($this);
+            $this->checkType($property, $oldValue, $value);
             if ($oldValue === $value) {
                 return $this;
-            }
-            if ($oldValue != null and gettype($oldValue) != gettype($value)) {
-                throw new Exception('Неверный тип данных');
             }
             $instance = clone $this;
             $instance->$name = $value;
             return $instance;
         }
         throw new Exception(sprintf('Объект не имеет свойства "%s" ', $name));
+    }
+
+    /**
+     * Проверка типа переданных данных
+     * @param \ReflectionProperty $property
+     * @param $oldValue
+     * @param $value
+     * @throws Exception
+     */
+    protected function checkType(\ReflectionProperty $property, $oldValue, $value)
+    {
+        $docBlock = new DocBlock($property->getDocComment());
+        if (!$docBlock->hasTag('var')) {
+            return;
+        }
+        $type = $docBlock->tag('var')[0];
+        switch ($type) {
+            case 'string':
+                $isInvalidType = !is_string($value);
+                break;
+            case 'int':
+            case 'integer':
+                $isInvalidType = !is_integer($value);
+                break;
+            case 'float':
+                $isInvalidType = !is_float($value);
+                break;
+            case 'bool':
+            case 'boolean':
+                $isInvalidType = !is_bool($value);
+                break;
+            case 'array':
+                $isInvalidType = !is_array($value);
+                break;
+            case 'static':
+            case 'self':
+            case '$this':
+                $calledClass = get_called_class();
+                $isInvalidType = (!$value instanceof $calledClass);
+                break;
+            case null:
+                $isInvalidType = false;
+                break;
+            default:
+                if (!is_object($value)) {
+                    $isInvalidType = true;
+                    break;
+                }
+                $namespace = $this->getCalledNamespace();
+                $className = $namespace . '\\' . $type;
+                $isInvalidType = ((!$value instanceof $className) and (!$value instanceof $type));
+        }
+
+        if ($isInvalidType) {
+            $className = get_called_class();
+            $methodName = 'with' . ucfirst($property->getName());
+            throw new Exception(sprintf('Неверный тип данных. "%s::%s"', $className, $methodName));
+        }
+
+        if ($oldValue != null and gettype($oldValue) != gettype($value)) {
+            throw new Exception('Неверный тип данных');
+        }
+    }
+
+    /**
+     * Получить namespace класса
+     * @return string
+     */
+    protected function getCalledNamespace(): string
+    {
+        $path = explode('\\', get_called_class());
+        array_pop($path);
+        return implode('\\', $path);
     }
 
 }
